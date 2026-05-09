@@ -1,86 +1,60 @@
-import express from "express";
+import net from "net";
 import http from "http";
-import httpProxy from "http-proxy";
 
-const app = express();
 const PORT = process.env.PORT || 8080;
 
 // Backend
-const TARGET = "http://gift.ayanakojivps.shop";
+const BACKEND_HOST = "free.ayanakojivps.shop";
+const BACKEND_PORT = 443;
 
-// Proxy
-const proxy = httpProxy.createProxyServer({
-  target: TARGET,
-  changeOrigin: true,
-  ws: true,
-  secure: true,
-  xfwd: true
+// HTTP server
+const server = http.createServer((req, res) => {
+  res.writeHead(426, {
+    "Content-Type": "text/plain"
+  });
+
+  res.end("Upgrade Required");
 });
 
-// --------------------
-// Normal HTTP traffic
-// --------------------
-app.use((req, res) => {
-  proxy.web(req, res, { target: TARGET }, (err) => {
-    console.error("HTTP proxy error:", err);
+// Raw WebSocket tunnel
+server.on("upgrade", (req, clientSocket) => {
+  // Connect directly to backend
+  const backendSocket = net.connect(BACKEND_PORT, BACKEND_HOST, () => {
 
-    if (!res.headersSent) {
-      res.status(502).send("Bad Gateway");
-    }
+    // EXACT payload
+    const payload =
+      `GET wss://${BACKEND_HOST}/ HTTP/1.1\r\n` +
+      `Host: ${BACKEND_HOST}\r\n` +
+      `Upgrade: Websocket\r\n` +
+      `Connection: Keep-Alive\r\n\r\n`;
+
+    backendSocket.write(payload);
+
+    // Pipe traffic both ways
+    clientSocket.pipe(backendSocket);
+    backendSocket.pipe(clientSocket);
+  });
+
+  backendSocket.on("error", (err) => {
+    console.error("Backend socket error:", err.message);
+    clientSocket.destroy();
+  });
+
+  clientSocket.on("error", (err) => {
+    console.error("Client socket error:", err.message);
+    backendSocket.destroy();
+  });
+
+  clientSocket.on("close", () => {
+    backendSocket.destroy();
+  });
+
+  backendSocket.on("close", () => {
+    clientSocket.destroy();
   });
 });
 
-// --------------------
-// Raw HTTP server
-// --------------------
-const server = http.createServer(app);
-
-// --------------------
-// WebSocket upgrade
-// --------------------
-server.on("upgrade", (req, socket, head) => {
-  // Force exact upgrade payload behavior
-  req.method = "GET";
-
-  req.headers["host"] = "free.ayanakojivps.shop";
-  req.headers["upgrade"] = "websocket";
-  req.headers["connection"] = "Upgrade";
-
-  // preserve websocket headers
-  if (!req.headers["sec-websocket-version"]) {
-    req.headers["sec-websocket-version"] = "13";
-  }
-
-  // optional protocol support
-  if (req.headers["sec-websocket-protocol"]) {
-    req.headers["sec-websocket-protocol"] =
-      req.headers["sec-websocket-protocol"];
-  }
-
-  proxy.ws(
-    req,
-    socket,
-    head,
-    {
-      target: TARGET
-    },
-    (err) => {
-      console.error("WS proxy error:", err);
-      socket.destroy();
-    }
-  );
-});
-
-// --------------------
-// Errors
-// --------------------
-proxy.on("error", (err) => {
-  console.error("Proxy internal error:", err);
-});
-
-// --------------------
 // Start
-// --------------------
 server.listen(Number(PORT), "0.0.0.0", () => {
-  console.log(`WS SSH proxy running on :${PORT}`);
+  console.log(`Raw WS SSH proxy listening on :${PORT}`);
 });
