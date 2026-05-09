@@ -5,8 +5,10 @@ import httpProxy from "http-proxy";
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-const TARGET = "http://gift.ayanakojivps.shop";
+// Backend
+const TARGET = "https://free.ayanakojivos.shop";
 
+// Proxy
 const proxy = httpProxy.createProxyServer({
   target: TARGET,
   changeOrigin: true,
@@ -15,64 +17,70 @@ const proxy = httpProxy.createProxyServer({
   xfwd: true
 });
 
-// ---------------------------
-// KEEP ALIVE (VERY IMPORTANT)
-// ---------------------------
-proxy.on("proxyReqWs", (proxyReq) => {
-  // helps avoid idle drops
-  proxyReq.setHeader("Connection", "keep-alive");
-});
-
-// ---------------------------
-// ERROR HANDLING
-// ---------------------------
-proxy.on("error", (err) => {
-  console.error("Proxy error:", err.message);
-});
-
-// ---------------------------
-// HTTP (optional passthrough)
-// ---------------------------
+// --------------------
+// Normal HTTP traffic
+// --------------------
 app.use((req, res) => {
   proxy.web(req, res, { target: TARGET }, (err) => {
     console.error("HTTP proxy error:", err);
+
     if (!res.headersSent) {
       res.status(502).send("Bad Gateway");
     }
   });
 });
 
-// ---------------------------
-// CREATE RAW SERVER (required for WS)
-// ---------------------------
+// --------------------
+// Raw HTTP server
+// --------------------
 const server = http.createServer(app);
 
-// ---------------------------
-// WEB SOCKET HANDLING
-// ---------------------------
+// --------------------
+// WebSocket upgrade
+// --------------------
 server.on("upgrade", (req, socket, head) => {
-  // IMPORTANT: do NOT modify headers aggressively
+  // Force exact upgrade payload behavior
+  req.method = "GET";
+
+  req.headers["host"] = "free.ayanakojivps.shop";
+  req.headers["upgrade"] = "websocket";
   req.headers["connection"] = "Upgrade";
 
-  proxy.ws(req, socket, head, {
-    target: TARGET
-  });
+  // preserve websocket headers
+  if (!req.headers["sec-websocket-version"]) {
+    req.headers["sec-websocket-version"] = "13";
+  }
+
+  // optional protocol support
+  if (req.headers["sec-websocket-protocol"]) {
+    req.headers["sec-websocket-protocol"] =
+      req.headers["sec-websocket-protocol"];
+  }
+
+  proxy.ws(
+    req,
+    socket,
+    head,
+    {
+      target: TARGET
+    },
+    (err) => {
+      console.error("WS proxy error:", err);
+      socket.destroy();
+    }
+  );
 });
 
-// ---------------------------
-// HEARTBEAT (reduces idle disconnects)
-// ---------------------------
-setInterval(() => {
-  // Cloud Run keeps instance alive if traffic exists
-  // this is a soft keep-alive mechanism
-  server.getConnections((_, count) => {
-    console.log("Active connections:", count);
-  });
-}, 30000);
+// --------------------
+// Errors
+// --------------------
+proxy.on("error", (err) => {
+  console.error("Proxy internal error:", err);
+});
 
-// ---------------------------
-// START SERVER
-// ---------------------------
+// --------------------
+// Start
+// --------------------
 server.listen(Number(PORT), "0.0.0.0", () => {
-  console.log(`SSH WS Proxy running on :${PORT} → ${TARGET}`);
+  console.log(`WS SSH proxy running on :${PORT}`);
 });
