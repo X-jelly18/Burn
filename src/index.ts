@@ -6,7 +6,7 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 // Backend
-const TARGET = "https://gift.ayanakojivps.shop";
+const TARGET = "http://gift.ayanakojivps.shop";
 
 // Proxy
 const proxy = httpProxy.createProxyServer({
