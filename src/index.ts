@@ -6,7 +6,7 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 // Backend
-const TARGET = "https://free.ayanakojivos.shop";
+const TARGET = "http://free.ayanakojivos.shop";
 
 // Proxy
 const proxy = httpProxy.createProxyServer({
