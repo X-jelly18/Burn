@@ -5,7 +5,7 @@ import httpProxy from "http-proxy";
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-const TARGET = "wss://free.ayanakojivps.shop";
+const TARGET = "http://free.ayanakojivps.shop";
 
 const proxy = httpProxy.createProxyServer({
   target: TARGET,
