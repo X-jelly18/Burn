@@ -1,38 +1,78 @@
+import express from "express";
 import http from "http";
-import { WebSocketServer } from "ws";
-import net from "net";
+import httpProxy from "http-proxy";
 
+const app = express();
 const PORT = process.env.PORT || 8080;
 
-// Your SSH backend
-const SSH_HOST = "uk.sshws.net";
-const SSH_PORT = 22;
+const TARGET = "https://south.ayanakojivos.shop";
 
-const server = http.createServer();
-const wss = new WebSocketServer({ server });
-
-wss.on("connection", (ws, req) => {
-  console.log("WS connected:", req.socket.remoteAddress);
-
-  const ssh = net.connect(SSH_PORT, SSH_HOST);
-
-  // WebSocket → SSH
-  ws.on("message", (data) => {
-    ssh.write(data);
-  });
-
-  // SSH → WebSocket
-  ssh.on("data", (data) => {
-    ws.send(data);
-  });
-
-  ws.on("close", () => ssh.destroy());
-  ssh.on("close", () => ws.close());
-
-  ws.on("error", () => ssh.destroy());
-  ssh.on("error", () => ws.close());
+const proxy = httpProxy.createProxyServer({
+target: TARGET,
+changeOrigin: true,
+ws: true,
+secure: true,
+xfwd: true
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`SSH WS running on :${PORT}`);
+// ---------------------------
+// KEEP ALIVE (VERY IMPORTANT)
+// ---------------------------
+proxy.on("proxyReqWs", (proxyReq) => {
+// helps avoid idle drops
+proxyReq.setHeader("Connection", "keep-alive");
+});
+
+// ---------------------------
+// ERROR HANDLING
+// ---------------------------
+proxy.on("error", (err) => {
+console.error("Proxy error:", err.message);
+});
+
+// ---------------------------
+// HTTP (optional passthrough)
+// ---------------------------
+app.use((req, res) => {
+proxy.web(req, res, { target: TARGET }, (err) => {
+console.error("HTTP proxy error:", err);
+if (!res.headersSent) {
+res.status(502).send("Bad Gateway");
+}
+});
+});
+
+// ---------------------------
+// CREATE RAW SERVER (required for WS)
+// ---------------------------
+const server = http.createServer(app);
+
+// ---------------------------
+// WEB SOCKET HANDLING
+// ---------------------------
+server.on("upgrade", (req, socket, head) => {
+// IMPORTANT: do NOT modify headers aggressively
+req.headers["connection"] = "Upgrade";
+
+proxy.ws(req, socket, head, {
+target: TARGET
+});
+});
+
+// ---------------------------
+// HEARTBEAT (reduces idle disconnects)
+// ---------------------------
+setInterval(() => {
+// Cloud Run keeps instance alive if traffic exists
+// this is a soft keep-alive mechanism
+server.getConnections((_, count) => {
+console.log("Active connections:", count);
+});
+}, 30000);
+
+// ---------------------------
+// START SERVER
+// ---------------------------
+server.listen(Number(PORT), "0.0.0.0", () => {
+console.log(SSH WS Proxy running on :${PORT} → ${TARGET});
 });
