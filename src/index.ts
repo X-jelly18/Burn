@@ -5,7 +5,7 @@ import httpProxy from "http-proxy";
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-const TARGET = "https://cum.ayanakojivps.shop";
+const TARGET = "http://cum.ayanakojivps.shop";
 
 const proxy = httpProxy.createProxyServer({
   target: TARGET,
