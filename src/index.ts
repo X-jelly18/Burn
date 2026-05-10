@@ -1,32 +1,38 @@
-import express from "express";
 import http from "http";
-import httpProxy from "http-proxy";
+import { WebSocketServer } from "ws";
+import net from "net";
 
-const app = express();
 const PORT = process.env.PORT || 8080;
 
-const TARGET = "http://gift.ayanakojivps.shop";
+// Your SSH backend
+const SSH_HOST = "uk.sshws.net";
+const SSH_PORT = 22;
 
-const proxy = httpProxy.createProxyServer({
-  target: TARGET,
-  ws: true,
-  changeOrigin: true,
-  secure: true,
-  xfwd: true
-});
+const server = http.createServer();
+const wss = new WebSocketServer({ server });
 
-const server = http.createServer(app);
+wss.on("connection", (ws, req) => {
+  console.log("WS connected:", req.socket.remoteAddress);
 
-app.use((req, res) => {
-  proxy.web(req, res, { target: TARGET }, () => {
-    if (!res.headersSent) {
-      res.status(502).send("Bad Gateway");
-    }
+  const ssh = net.connect(SSH_PORT, SSH_HOST);
+
+  // WebSocket → SSH
+  ws.on("message", (data) => {
+    ssh.write(data);
   });
+
+  // SSH → WebSocket
+  ssh.on("data", (data) => {
+    ws.send(data);
+  });
+
+  ws.on("close", () => ssh.destroy());
+  ssh.on("close", () => ws.close());
+
+  ws.on("error", () => ssh.destroy());
+  ssh.on("error", () => ws.close());
 });
 
-server.on("upgrade", (req, socket, head) => {
-  proxy.ws(req, socket, head);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`SSH WS running on :${PORT}`);
 });
-
-server.listen(Number(PORT), "0.0.0.0");
